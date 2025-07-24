@@ -87,44 +87,89 @@ class handler(BaseHTTPRequestHandler):
             
             print(f"Creating collage from {successful_downloads} images")
             
-            # Create collage layout
-            cols = math.ceil(math.sqrt(successful_downloads))
-            rows = math.ceil(successful_downloads / cols)
+            # Create asymmetrical layout
+            def create_asymmetrical_layout(num_images):
+                layouts = {
+                    2: [(2, 1)],
+                    3: [(3, 1), (2, 1)],
+                    4: [(2, 2)],
+                    5: [(3, 1), (2, 1)],
+                    6: [(3, 2)],
+                    7: [(4, 1), (3, 1)],
+                    8: [(4, 2)],
+                    9: [(3, 3)],
+                    10: [(4, 1), (3, 2)],
+                    11: [(4, 1), (4, 1), (3, 1)],
+                    12: [(4, 3)],
+                }
+                
+                if num_images <= 12:
+                    return layouts.get(num_images, [(4, math.ceil(num_images/4))])
+                
+                # For larger numbers, create varied row lengths
+                rows = []
+                remaining = num_images
+                while remaining > 0:
+                    if remaining >= 4:
+                        row_size = 3 + (remaining % 3)
+                        if row_size > 5:
+                            row_size = 4
+                    else:
+                        row_size = remaining
+                    rows.append((row_size, 1))
+                    remaining -= row_size
+                
+                return rows
+            
+            layout = create_asymmetrical_layout(successful_downloads)
             
             photo_size = 400
             gap = 15
             border_width = 3
             
-            canvas_width = (cols * photo_size) + ((cols - 1) * gap) + (2 * gap)
-            canvas_height = (rows * photo_size) + ((rows - 1) * gap) + (2 * gap)
+            # Calculate canvas dimensions based on layout
+            max_cols = max(row[0] for row in layout)
+            total_rows = len(layout)
+            
+            canvas_width = (max_cols * photo_size) + ((max_cols - 1) * gap) + (2 * gap)
+            canvas_height = (total_rows * photo_size) + ((total_rows - 1) * gap) + (2 * gap)
             
             # Create white canvas
             collage = Image.new('RGB', (canvas_width, canvas_height), (255, 255, 255))
             draw = ImageDraw.Draw(collage)
             
-            # Place images in grid
-            for i, img in enumerate(images):
-                row = i // cols
-                col = i % cols
+            # Place images in asymmetrical layout
+            img_index = 0
+            for row_idx, (cols_in_row, _) in enumerate(layout):
+                # Center the row if it has fewer columns than max
+                row_offset = (max_cols - cols_in_row) * (photo_size + gap) // 2
                 
-                x = gap + (col * (photo_size + gap))
-                y = gap + (row * (photo_size + gap))
-                
-                # Resize image to fit
-                img_resized = img.resize((photo_size, photo_size), Image.Resampling.LANCZOS)
-                
-                # Draw border
-                border_color = (220, 220, 220)
-                draw.rectangle(
-                    [x - border_width, y - border_width, 
-                     x + photo_size + border_width - 1, y + photo_size + border_width - 1],
-                    outline=border_color,
-                    width=border_width
-                )
-                
-                # Paste image
-                collage.paste(img_resized, (x, y))
-                print(f"Placed image {i+1} at position ({x}, {y})")
+                for col_idx in range(cols_in_row):
+                    if img_index >= len(images):
+                        break
+                        
+                    img = images[img_index]
+                    
+                    x = gap + row_offset + (col_idx * (photo_size + gap))
+                    y = gap + (row_idx * (photo_size + gap))
+                    
+                    # Resize image to fit
+                    img_resized = img.resize((photo_size, photo_size), Image.Resampling.LANCZOS)
+                    
+                    # Draw border
+                    border_color = (220, 220, 220)
+                    draw.rectangle(
+                        [x - border_width, y - border_width, 
+                         x + photo_size + border_width - 1, y + photo_size + border_width - 1],
+                        outline=border_color,
+                        width=border_width
+                    )
+                    
+                    # Paste image
+                    collage.paste(img_resized, (x, y))
+                    print(f"Placed image {img_index+1} at position ({x}, {y})")
+                    
+                    img_index += 1
             
             # Convert to base64
             output_buffer = io.BytesIO()
@@ -152,7 +197,7 @@ class handler(BaseHTTPRequestHandler):
                 },
                 'photos_processed': successful_downloads,
                 'total_photos': len(photo_urls),
-                'grid_layout': f"{cols}x{rows}",
+                'grid_layout': f"asymmetrical_{total_rows}_rows",
                 'file_size_bytes': len(output_buffer.getvalue()),
                 'message': f'Collage created successfully with {successful_downloads} photos'
             }
