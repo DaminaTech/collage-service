@@ -94,7 +94,9 @@ class handler(BaseHTTPRequestHandler):
             
             def create_single_collage(chunk_images, chunk_index, total_chunks):
                 num_images = len(chunk_images)
-                max_dimension = 600  # Maximum width or height for any image
+                target_size = 500  # Target size for images
+                min_dimension = 350  # Minimum width or height
+                max_dimension = 650  # Maximum width or height
                 gap = 15
                 border_width = 3
                 
@@ -104,14 +106,33 @@ class handler(BaseHTTPRequestHandler):
                     original_width, original_height = img.size
                     aspect_ratio = original_width / original_height
                     
-                    # Scale image to fit within max_dimension while preserving aspect ratio
+                    # Scale image to target size while respecting min/max constraints
                     if original_width > original_height:
-                        # Landscape
-                        new_width = min(max_dimension, original_width)
+                        # Landscape - base on width
+                        new_width = min(max_dimension, max(min_dimension, target_size))
                         new_height = int(new_width / aspect_ratio)
+                        
+                        # Ensure height meets minimum
+                        if new_height < min_dimension:
+                            new_height = min_dimension
+                            new_width = int(new_height * aspect_ratio)
+                            
                     else:
-                        # Portrait or square
-                        new_height = min(max_dimension, original_height)
+                        # Portrait or square - base on height
+                        new_height = min(max_dimension, max(min_dimension, target_size))
+                        new_width = int(new_height * aspect_ratio)
+                        
+                        # Ensure width meets minimum
+                        if new_width < min_dimension:
+                            new_width = min_dimension
+                            new_height = int(new_width / aspect_ratio)
+                    
+                    # Final constraint check
+                    if new_width > max_dimension:
+                        new_width = max_dimension
+                        new_height = int(new_width / aspect_ratio)
+                    if new_height > max_dimension:
+                        new_height = max_dimension
                         new_width = int(new_height * aspect_ratio)
                     
                     # Resize image
@@ -128,9 +149,17 @@ class handler(BaseHTTPRequestHandler):
                 elif num_images <= 4:
                     cols, rows = 2, 2
                 
-                # Calculate cell dimensions - use the maximum dimensions needed
-                cell_width = max(img_data['width'] for img_data in processed_images)
-                cell_height = max(img_data['height'] for img_data in processed_images)
+                # Calculate cell dimensions more efficiently - use average + padding instead of max
+                avg_width = sum(img_data['width'] for img_data in processed_images) / len(processed_images)
+                avg_height = sum(img_data['height'] for img_data in processed_images) / len(processed_images)
+                
+                # Use 110% of average size to reduce empty space while accommodating larger images
+                cell_width = int(avg_width * 1.1)
+                cell_height = int(avg_height * 1.1)
+                
+                # Ensure cells are at least as big as the largest image
+                cell_width = max(cell_width, max(img_data['width'] for img_data in processed_images))
+                cell_height = max(cell_height, max(img_data['height'] for img_data in processed_images))
                 
                 # Calculate canvas size
                 canvas_width = (cols * cell_width) + ((cols - 1) * gap) + (2 * gap)
