@@ -85,121 +85,140 @@ class handler(BaseHTTPRequestHandler):
                 self._send_error(f"Only {successful_downloads} photos downloaded successfully")
                 return
             
-            print(f"Creating collage from {successful_downloads} images")
+            print(f"Creating collages from {successful_downloads} images")
             
-            # Create asymmetrical layout
-            def create_asymmetrical_layout(num_images):
-                layouts = {
-                    2: [(2, 1)],
-                    3: [(3, 1), (2, 1)],
-                    4: [(2, 2)],
-                    5: [(3, 1), (2, 1)],
-                    6: [(3, 2)],
-                    7: [(4, 1), (3, 1)],
-                    8: [(4, 2)],
-                    9: [(3, 3)],
-                    10: [(4, 1), (3, 2)],
-                    11: [(4, 1), (4, 1), (3, 1)],
-                    12: [(4, 3)],
-                }
+            # Split images into chunks of 4
+            def chunk_images(images, chunk_size=4):
+                for i in range(0, len(images), chunk_size):
+                    yield images[i:i + chunk_size]
+            
+            def create_single_collage(chunk_images, chunk_index, total_chunks):
+                num_images = len(chunk_images)
+                max_dimension = 600  # Maximum width or height for any image
+                gap = 15
+                border_width = 3
                 
-                if num_images <= 12:
-                    return layouts.get(num_images, [(4, math.ceil(num_images/4))])
-                
-                # For larger numbers, create varied row lengths
-                rows = []
-                remaining = num_images
-                while remaining > 0:
-                    if remaining >= 4:
-                        row_size = 3 + (remaining % 3)
-                        if row_size > 5:
-                            row_size = 4
+                # Calculate dimensions for each image while preserving aspect ratio
+                processed_images = []
+                for img in chunk_images:
+                    original_width, original_height = img.size
+                    aspect_ratio = original_width / original_height
+                    
+                    # Scale image to fit within max_dimension while preserving aspect ratio
+                    if original_width > original_height:
+                        # Landscape
+                        new_width = min(max_dimension, original_width)
+                        new_height = int(new_width / aspect_ratio)
                     else:
-                        row_size = remaining
-                    rows.append((row_size, 1))
-                    remaining -= row_size
+                        # Portrait or square
+                        new_height = min(max_dimension, original_height)
+                        new_width = int(new_height * aspect_ratio)
+                    
+                    # Resize image
+                    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    processed_images.append({
+                        'image': img_resized,
+                        'width': new_width,
+                        'height': new_height
+                    })
                 
-                return rows
-            
-            layout = create_asymmetrical_layout(successful_downloads)
-            
-            photo_size = 400
-            gap = 15
-            border_width = 3
-            
-            # Calculate canvas dimensions based on layout
-            max_cols = max(row[0] for row in layout)
-            total_rows = len(layout)
-            
-            canvas_width = (max_cols * photo_size) + ((max_cols - 1) * gap) + (2 * gap)
-            canvas_height = (total_rows * photo_size) + ((total_rows - 1) * gap) + (2 * gap)
-            
-            # Create white canvas
-            collage = Image.new('RGB', (canvas_width, canvas_height), (255, 255, 255))
-            draw = ImageDraw.Draw(collage)
-            
-            # Place images in asymmetrical layout
-            img_index = 0
-            for row_idx, (cols_in_row, _) in enumerate(layout):
-                # Center the row if it has fewer columns than max
-                row_offset = (max_cols - cols_in_row) * (photo_size + gap) // 2
+                # Calculate grid layout
+                if num_images <= 2:
+                    cols, rows = num_images, 1
+                elif num_images <= 4:
+                    cols, rows = 2, 2
                 
-                for col_idx in range(cols_in_row):
-                    if img_index >= len(images):
-                        break
-                        
-                    img = images[img_index]
+                # Calculate cell dimensions - use the maximum dimensions needed
+                cell_width = max(img_data['width'] for img_data in processed_images)
+                cell_height = max(img_data['height'] for img_data in processed_images)
+                
+                # Calculate canvas size
+                canvas_width = (cols * cell_width) + ((cols - 1) * gap) + (2 * gap)
+                canvas_height = (rows * cell_height) + ((rows - 1) * gap) + (2 * gap)
+                
+                # Create white canvas
+                collage = Image.new('RGB', (canvas_width, canvas_height), (255, 255, 255))
+                draw = ImageDraw.Draw(collage)
+                
+                # Place images in grid
+                for i, img_data in enumerate(processed_images):
+                    if num_images <= 2:
+                        # Horizontal layout for 1-2 images
+                        col = i
+                        row = 0
+                    else:
+                        # 2x2 grid for 3-4 images
+                        col = i % 2
+                        row = i // 2
                     
-                    x = gap + row_offset + (col_idx * (photo_size + gap))
-                    y = gap + (row_idx * (photo_size + gap))
+                    # Calculate cell position
+                    cell_x = gap + (col * (cell_width + gap))
+                    cell_y = gap + (row * (cell_height + gap))
                     
-                    # Resize image to fit
-                    img_resized = img.resize((photo_size, photo_size), Image.Resampling.LANCZOS)
+                    # Center image within cell
+                    img_width = img_data['width']
+                    img_height = img_data['height']
+                    x = cell_x + (cell_width - img_width) // 2
+                    y = cell_y + (cell_height - img_height) // 2
                     
-                    # Draw border
+                    # Draw border around the image (not the cell)
                     border_color = (220, 220, 220)
                     draw.rectangle(
                         [x - border_width, y - border_width, 
-                         x + photo_size + border_width - 1, y + photo_size + border_width - 1],
+                         x + img_width + border_width - 1, y + img_height + border_width - 1],
                         outline=border_color,
                         width=border_width
                     )
                     
                     # Paste image
-                    collage.paste(img_resized, (x, y))
-                    print(f"Placed image {img_index+1} at position ({x}, {y})")
-                    
-                    img_index += 1
+                    collage.paste(img_data['image'], (x, y))
+                    print(f"Placed image {i+1} ({img_width}x{img_height}) at position ({x}, {y}) in collage {chunk_index+1}")
+                
+                # Convert to base64
+                output_buffer = io.BytesIO()
+                collage.save(output_buffer, format='JPEG', quality=92, optimize=True)
+                base64_image = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
+                
+                return {
+                    'image_base64': base64_image,
+                    'dimensions': {'width': canvas_width, 'height': canvas_height},
+                    'photos_in_collage': num_images,
+                    'file_size_bytes': len(output_buffer.getvalue()),
+                    'grid_layout': f"{cols}x{rows}"
+                }
             
-            # Convert to base64
-            output_buffer = io.BytesIO()
-            collage.save(output_buffer, format='JPEG', quality=92, optimize=True)
-            base64_image = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
+            # Create multiple collages
+            image_chunks = list(chunk_images(images, 4))
+            collages = []
             
-            # Generate filename
+            # Generate base filename
             date_str = metadata.get('date', '2025-07-24')
             activity = metadata.get('tipActivitate', 'activity')
             building = metadata.get('cladire', 'building')
             
-            filename = f"{date_str}_{activity}_{building}_COLLAGE.jpg"
-            filename = ''.join(c if c.isalnum() or c in '._-' else '_' for c in filename)
-            
-            print(f"✅ Collage created: {filename} ({canvas_width}x{canvas_height})")
+            for i, chunk in enumerate(image_chunks):
+                collage_data = create_single_collage(chunk, i, len(image_chunks))
+                
+                # Generate filename with page number
+                if len(image_chunks) > 1:
+                    filename = f"{date_str}_{activity}_{building}_COLLAGE_page_{i+1}.jpg"
+                else:
+                    filename = f"{date_str}_{activity}_{building}_COLLAGE.jpg"
+                filename = ''.join(c if c.isalnum() or c in '._-' else '_' for c in filename)
+                
+                collage_data['filename'] = filename
+                collages.append(collage_data)
+                
+                print(f"✅ Collage {i+1}/{len(image_chunks)} created: {filename} ({collage_data['dimensions']['width']}x{collage_data['dimensions']['height']})")
             
             # Send response to n8n
             response_data = {
                 'success': True,
-                'image_base64': base64_image,
-                'filename': filename,
-                'dimensions': {
-                    'width': canvas_width,
-                    'height': canvas_height
-                },
+                'collages': collages,
+                'total_collages': len(collages),
                 'photos_processed': successful_downloads,
                 'total_photos': len(photo_urls),
-                'grid_layout': f"asymmetrical_{total_rows}_rows",
-                'file_size_bytes': len(output_buffer.getvalue()),
-                'message': f'Collage created successfully with {successful_downloads} photos'
+                'message': f'{len(collages)} collage(s) created successfully with {successful_downloads} photos'
             }
             
             self.wfile.write(json.dumps(response_data).encode())
