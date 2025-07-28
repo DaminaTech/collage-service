@@ -94,53 +94,34 @@ class handler(BaseHTTPRequestHandler):
             
             def create_single_collage(chunk_images, chunk_index, total_chunks):
                 num_images = len(chunk_images)
-                target_size = 500  # Target size for images
-                min_dimension = 350  # Minimum width or height
-                max_dimension = 650  # Maximum width or height
+                target_size = 500  # Target size for square images
                 gap = 15
                 border_width = 3
                 
-                # Calculate dimensions for each image while preserving aspect ratio
+                # Crop images to squares for symmetrical layout
                 processed_images = []
                 for img in chunk_images:
                     original_width, original_height = img.size
-                    aspect_ratio = original_width / original_height
                     
-                    # Scale image to target size while respecting min/max constraints
-                    if original_width > original_height:
-                        # Landscape - base on width
-                        new_width = min(max_dimension, max(min_dimension, target_size))
-                        new_height = int(new_width / aspect_ratio)
-                        
-                        # Ensure height meets minimum
-                        if new_height < min_dimension:
-                            new_height = min_dimension
-                            new_width = int(new_height * aspect_ratio)
-                            
-                    else:
-                        # Portrait or square - base on height
-                        new_height = min(max_dimension, max(min_dimension, target_size))
-                        new_width = int(new_height * aspect_ratio)
-                        
-                        # Ensure width meets minimum
-                        if new_width < min_dimension:
-                            new_width = min_dimension
-                            new_height = int(new_width / aspect_ratio)
+                    # Find the smaller dimension to create a square crop
+                    min_dimension_original = min(original_width, original_height)
                     
-                    # Final constraint check
-                    if new_width > max_dimension:
-                        new_width = max_dimension
-                        new_height = int(new_width / aspect_ratio)
-                    if new_height > max_dimension:
-                        new_height = max_dimension
-                        new_width = int(new_height * aspect_ratio)
+                    # Calculate crop box to center the square crop
+                    left = (original_width - min_dimension_original) // 2
+                    top = (original_height - min_dimension_original) // 2
+                    right = left + min_dimension_original
+                    bottom = top + min_dimension_original
                     
-                    # Resize image
-                    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    # Crop to square
+                    img_cropped = img.crop((left, top, right, bottom))
+                    
+                    # Resize the square to target size
+                    img_resized = img_cropped.resize((target_size, target_size), Image.Resampling.LANCZOS)
+                    
                     processed_images.append({
                         'image': img_resized,
-                        'width': new_width,
-                        'height': new_height
+                        'width': target_size,
+                        'height': target_size
                     })
                 
                 # Calculate grid layout
@@ -149,17 +130,9 @@ class handler(BaseHTTPRequestHandler):
                 elif num_images <= 4:
                     cols, rows = 2, 2
                 
-                # Calculate cell dimensions more efficiently - use average + padding instead of max
-                avg_width = sum(img_data['width'] for img_data in processed_images) / len(processed_images)
-                avg_height = sum(img_data['height'] for img_data in processed_images) / len(processed_images)
-                
-                # Use 110% of average size to reduce empty space while accommodating larger images
-                cell_width = int(avg_width * 1.1)
-                cell_height = int(avg_height * 1.1)
-                
-                # Ensure cells are at least as big as the largest image
-                cell_width = max(cell_width, max(img_data['width'] for img_data in processed_images))
-                cell_height = max(cell_height, max(img_data['height'] for img_data in processed_images))
+                # Since all images are now the same size (squares), grid calculation is simple
+                cell_width = target_size
+                cell_height = target_size
                 
                 # Calculate canvas size
                 canvas_width = (cols * cell_width) + ((cols - 1) * gap) + (2 * gap)
@@ -184,24 +157,22 @@ class handler(BaseHTTPRequestHandler):
                     cell_x = gap + (col * (cell_width + gap))
                     cell_y = gap + (row * (cell_height + gap))
                     
-                    # Center image within cell
-                    img_width = img_data['width']
-                    img_height = img_data['height']
-                    x = cell_x + (cell_width - img_width) // 2
-                    y = cell_y + (cell_height - img_height) // 2
+                    # Since all images are the same size, no centering needed
+                    x = cell_x
+                    y = cell_y
                     
-                    # Draw border around the image (not the cell)
+                    # Draw border around the image
                     border_color = (220, 220, 220)
                     draw.rectangle(
                         [x - border_width, y - border_width, 
-                         x + img_width + border_width - 1, y + img_height + border_width - 1],
+                         x + target_size + border_width - 1, y + target_size + border_width - 1],
                         outline=border_color,
                         width=border_width
                     )
                     
                     # Paste image
                     collage.paste(img_data['image'], (x, y))
-                    print(f"Placed image {i+1} ({img_width}x{img_height}) at position ({x}, {y}) in collage {chunk_index+1}")
+                    print(f"Placed image {i+1} ({target_size}x{target_size}) at position ({x}, {y}) in collage {chunk_index+1}")
                 
                 # Convert to base64
                 output_buffer = io.BytesIO()
